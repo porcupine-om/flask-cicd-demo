@@ -18,27 +18,16 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # 3. Логин в GitHub Container Registry
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v2
-        with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      # 3. Собираем Docker-образ (без пуша)
+      - name: Build Docker image
+        run: docker build -t flask-app .
 
-      # 4. Собираем и пушим образ
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/flask-cicd-demo:${{ github.sha }}
-            ghcr.io/${{ github.repository_owner }}/flask-cicd-demo:latest
+      # 4. Сохраняем образ как tar-архив
+      - name: Save Docker image as tar
+        run: docker save -o flask-app.tar flask-app
 
-      # 5. Деплой на сервер через SSH
-      - name: Deploy to server via SSH
+      # 5. Копируем архив на сервер по SSH
+      - name: Copy Docker image to server
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.SERVER_HOST }}
@@ -46,8 +35,9 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SERVER_PORT }}
           script: |
+            mkdir -p /home/${{ secrets.SERVER_USER }}/flask-cicd-demo
             cd /home/${{ secrets.SERVER_USER }}/flask-cicd-demo
-            docker pull ghcr.io/${{ github.repository_owner }}/flask-cicd-demo:latest
+            docker load -i flask-app.tar
             docker stop flask-app || true
             docker rm flask-app || true
-            docker run -d --name flask-app -p 5000:5000 ghcr.io/${{ github.repository_owner }}/flask-cicd-demo:latest
+            docker run -d --name flask-app -p 5000:5000 flask-app    
